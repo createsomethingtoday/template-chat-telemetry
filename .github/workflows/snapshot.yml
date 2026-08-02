@@ -1,0 +1,25 @@
+name: telemetry-snapshot
+on:
+  schedule:
+    # 14:35 UTC daily — comfortably before the 15:07 UTC Slack digest routine,
+    # with headroom for GitHub's scheduled-workflow jitter.
+    - cron: '35 14 * * *'
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch summary
+        run: |
+          curl -sf "https://webflow-template-agent.createsomething.workers.dev/telemetry/summary?key=${{ secrets.TELEMETRY_READ_KEY }}" -o summary.json
+          python3 -m json.tool summary.json > /dev/null
+      - name: Commit snapshot
+        run: |
+          git config user.name "telemetry-snapshot"
+          git config user.email "actions@users.noreply.github.com"
+          git add summary.json
+          git diff --cached --quiet || git commit -m "telemetry snapshot"
+          git push
