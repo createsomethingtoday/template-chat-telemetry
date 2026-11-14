@@ -1,12 +1,15 @@
 name: telemetry-snapshot
 on:
   schedule:
-    # 14:35 UTC daily — comfortably before the 15:07 UTC Slack digest routine,
-    # with headroom for GitHub's scheduled-workflow jitter.
-    - cron: '35 14 * * *'
+    # Hourly. GitHub can start a scheduled run hours late, so one run a day
+    # left the Slack digest reading a snapshot that was 18 to 21 hours old.
+    - cron: '17 * * * *'
   workflow_dispatch: {}
 permissions:
   contents: write
+  issues: write
+concurrency:
+  group: telemetry-snapshot
 jobs:
   snapshot:
     runs-on: ubuntu-latest
@@ -23,3 +26,17 @@ jobs:
           git add summary.json
           git diff --cached --quiet || git commit -m "telemetry snapshot"
           git push
+      # One open issue while the Worker reports an outage finding. GitHub
+      # notifies the people who watch this repository when it opens.
+      - name: Open or close the outage issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          outage="$(python3 scripts/outage_findings.py summary.json)"
+          gh label create finder-outage --color B60205 --description "The Template Finder is down for visitors" --force
+          open="$(gh issue list --state open --label finder-outage --json number --jq '.[0].number // empty')"
+          if [ -n "$outage" ] && [ -z "$open" ]; then
+            gh issue create --title "Template Finder outage" --label finder-outage --body "$outage"
+          elif [ -z "$outage" ] && [ -n "$open" ]; then
+            gh issue close "$open" --comment "The latest snapshot reports no outage finding."
+          fi
